@@ -1,9 +1,53 @@
 // Prevents additional console window on Windows in release, DO NOT REMOVE!!
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+use polars::prelude::*;
+use std::fs::OpenOptions;
+use std::io::{BufWriter, Read, Seek, SeekFrom, Write};
+
+fn add_more_header_column(file_path: &str) -> std::io::Result<()> {
+
+    let mut file = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(file_path)?;
+
+    let mut buffer = String::new();
+
+    file.read_to_string(&mut buffer)?;
+
+    let first_line_end = buffer.find('\n').unwrap_or(buffer.len());
+
+    let mut new_header = String::from("site::MAC,vlanid,service");
+    for i in 1..=50 {
+        new_header.push_str(&format!(",i{},s{}", i, i));
+    }
+
+    let new_content = new_header + &buffer[first_line_end..];
+
+    file.seek(SeekFrom::Start(0))?;
+
+    let mut writer = BufWriter::new(&file);
+    writer.write_all(new_content.as_bytes())?;
+    writer.flush()?;
+
+    println!("File successfully modified.");
+
+    Ok(())
+}
+
 #[tauri::command]
 fn greet(name: &str) -> String {
-    format!("Hello, {}! You've been greeted from Rust!", name)
+    add_more_header_column(name).unwrap();
+    let df = CsvReadOptions::default()
+        .with_parse_options(CsvParseOptions::default().with_separator(',' as u8))
+        .with_infer_schema_length(Some(0))
+        .try_into_reader_with_file_path(Some(name.into()))
+        .unwrap()
+        .finish()
+        .unwrap();
+    println!("{:?}", df);
+    format!("Hello, {}! You've been greeted from Rust!", df.height())
 }
 
 fn main() {
