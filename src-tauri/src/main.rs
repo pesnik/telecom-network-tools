@@ -6,11 +6,7 @@ use std::fs::OpenOptions;
 use std::io::{BufWriter, Read, Seek, SeekFrom, Write};
 
 fn add_more_header_column(file_path: &str) -> std::io::Result<()> {
-
-    let mut file = OpenOptions::new()
-        .read(true)
-        .write(true)
-        .open(file_path)?;
+    let mut file = OpenOptions::new().read(true).write(true).open(file_path)?;
 
     let mut buffer = String::new();
 
@@ -36,18 +32,36 @@ fn add_more_header_column(file_path: &str) -> std::io::Result<()> {
     Ok(())
 }
 
-#[tauri::command]
-fn greet(name: &str) -> String {
-    add_more_header_column(name).unwrap();
+fn read_csv(file_path: &str) -> Result<DataFrame, PolarsError> {
     let df = CsvReadOptions::default()
         .with_parse_options(CsvParseOptions::default().with_separator(',' as u8))
         .with_infer_schema_length(Some(0))
-        .try_into_reader_with_file_path(Some(name.into()))
-        .unwrap()
-        .finish()
-        .unwrap();
-    println!("{:?}", df);
-    format!("Hello, {}! You've been greeted from Rust!", df.height())
+        .try_into_reader_with_file_path(Some(file_path.into()))?
+        .finish()?;
+
+    Ok(df)
+}
+
+#[tauri::command]
+fn greet(name: &str) -> String {
+    let error_occured = add_more_header_column(name);
+    match error_occured {
+        Err(err) => {
+            return format!("Error {:?} occured", err)
+        }
+        _ => {}
+    }
+    let dataframe = read_csv(name);
+    match dataframe {
+        Ok(df) => {
+            println!("{:?}", df);
+            format!("Hello, {}! You've been greeted from Rust!", df.height())
+        }
+        Err(err) => {
+            println!("{:?}", err);
+            format!("Error {:?} occured", err)
+        }
+    }
 }
 
 fn main() {
