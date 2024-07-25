@@ -191,6 +191,7 @@ name = "blink-transmission"
 version = "0.0.0"
 dependencies = [
  "polars",
+ "polars-io",
  "serde",
  "serde_json",
  "tauri",
@@ -2413,6 +2414,7 @@ dependencies = [
  "bytes",
  "chrono",
  "fast-float",
+ "flate2",
  "home",
  "itoa 1.0.11",
  "memchr",
@@ -2430,6 +2432,7 @@ dependencies = [
  "ryu",
  "simdutf8",
  "smartstring",
+ "zstd",
 ]
 
 [[package]]

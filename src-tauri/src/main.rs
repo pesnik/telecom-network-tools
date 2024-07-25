@@ -3,7 +3,7 @@
 
 use polars::prelude::*;
 use std::collections::HashSet;
-use std::fs::OpenOptions;
+use std::fs::{File, OpenOptions};
 use std::io::{BufWriter, Read, Seek, SeekFrom, Write};
 
 fn add_more_header_column(file_path: &str) -> std::io::Result<()> {
@@ -33,7 +33,7 @@ fn add_more_header_column(file_path: &str) -> std::io::Result<()> {
     Ok(())
 }
 
-fn add_unique_site_counts(df: &mut DataFrame) {
+fn add_unique_site_counts(df: &mut DataFrame, file_path: &str) {
     let rows = df.height();
     let mut total_sites: Vec<i64> = Vec::new();
 
@@ -41,7 +41,7 @@ fn add_unique_site_counts(df: &mut DataFrame) {
         let el = df.get_row(row).unwrap();
         // println!("{:?}", el)
         let mut item = 0;
-        let mut mp: HashSet<String>= HashSet::new();
+        let mut mp: HashSet<String> = HashSet::new();
         for col in el.0 {
             item += 1;
             if item <= 2 {
@@ -50,7 +50,7 @@ fn add_unique_site_counts(df: &mut DataFrame) {
             match col {
                 AnyValue::Null => {
                     break;
-                },
+                }
                 _ => {
                     mp.insert(col.to_string());
                 }
@@ -63,6 +63,23 @@ fn add_unique_site_counts(df: &mut DataFrame) {
     let series = polars::prelude::Series::new("dep_sites", total_sites.iter());
     df.insert_column(1, series).unwrap();
     println!("{:?}", df.tail(Some(100)));
+
+    let mut root_path: Vec<&str> = file_path.split('/').collect();
+    root_path.truncate(root_path.len() - 1);
+
+    println!("dhur {:?}", root_path);
+    let mut file = File::create(format!(
+        "{}/{}",
+        root_path.join("/"),
+        "with_site_deps.csv".to_owned(),
+    ))
+    .expect("could not create file");
+
+    CsvWriter::new(&mut file)
+        .include_header(true)
+        .with_separator(b',')
+        .finish(df)
+        .unwrap();
 }
 
 #[tauri::command]
@@ -75,9 +92,9 @@ fn parse_and_find_dependencies(file_path: &str) -> String {
         .unwrap()
         .finish()
         .unwrap();
-    add_unique_site_counts(&mut df);
+    add_unique_site_counts(&mut df, file_path);
     println!("{:?}", df);
-    format!("Hello, {}! You've been greeted from Rust!", df.height())
+    format!("Completed")
 }
 
 fn main() {
