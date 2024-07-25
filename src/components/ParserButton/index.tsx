@@ -10,7 +10,9 @@ const FileParserButton: React.FC = () => {
     if (!selectedFile) return;
 
     try {
-      const res = await invoke("greet", { name: selectedFile });
+      const res = await invoke("parse_and_find_dependencies", {
+        filePath: selectedFile,
+      });
       setSelectedFile(res as string);
     } catch (error) {
       console.error("Error parsing file:", error);
