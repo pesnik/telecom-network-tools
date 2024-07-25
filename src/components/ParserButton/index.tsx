@@ -1,32 +1,37 @@
-import React from "react";
+import React, { useState } from "react";
 import Button from "@mui/material/Button";
 import { useFileContext } from "contexts/FileContext";
 import { invoke } from "@tauri-apps/api/tauri";
+import SimpleSnackbar from "components/SnackBar";
 
 const FileParserButton: React.FC = () => {
-  const { selectedFile, setSelectedFile } = useFileContext();
+  const { selectedFile } = useFileContext();
+  const [fileParsed, setFileParsed] = useState<boolean>(false);
 
   const sendFileForParsing = async () => {
     if (!selectedFile) return;
 
     try {
-      const res = await invoke("parse_and_find_dependencies", {
+      await invoke("parse_and_find_dependencies", {
         filePath: selectedFile,
       });
-      setSelectedFile(res as string);
+      setFileParsed(true);
     } catch (error) {
       console.error("Error parsing file:", error);
     }
   };
 
   return (
-    <Button
-      disabled={!selectedFile}
-      variant="contained"
-      onClick={sendFileForParsing}
-    >
-      Parse Dependency
-    </Button>
+    <>
+      <Button
+        disabled={!selectedFile}
+        variant="contained"
+        onClick={sendFileForParsing}
+      >
+        Parse Dependency
+      </Button>
+      {fileParsed ? <SimpleSnackbar /> : <></>}
+    </>
   );
 };
 

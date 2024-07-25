@@ -6,6 +6,11 @@ use std::collections::HashSet;
 use std::fs::{File, OpenOptions};
 use std::io::{BufWriter, Read, Seek, SeekFrom, Write};
 
+enum FileType {
+    SiteDep,
+    LinkDep,
+}
+
 fn add_more_header_column(file_path: &str) -> std::io::Result<()> {
     let mut file = OpenOptions::new().read(true).write(true).open(file_path)?;
 
@@ -37,9 +42,17 @@ fn add_unique_site_counts(df: &mut DataFrame, file_path: &str) {
     let rows = df.height();
     let mut total_sites: Vec<i64> = Vec::new();
 
+    let root_path: Vec<&str> = file_path.split('/').collect();
+    // root_path.truncate(root_path.len() - 1);
+
+    let file_type = if root_path.last().unwrap().contains("site_dep") {
+        FileType::SiteDep
+    } else {
+        FileType::LinkDep
+    };
+
     for row in 0..rows {
         let el = df.get_row(row).unwrap();
-        // println!("{:?}", el)
         let mut item = 0;
         let mut mp: HashSet<String> = HashSet::new();
         for col in el.0 {
@@ -52,26 +65,31 @@ fn add_unique_site_counts(df: &mut DataFrame, file_path: &str) {
                     break;
                 }
                 _ => {
-                    mp.insert(col.to_string());
+                    match file_type {
+                        FileType::LinkDep => {
+                            let col_str = col.to_string();
+
+                            let new_col: Vec<&str> = col_str.split("::").collect();
+
+                            mp.insert(new_col.get(0).unwrap().to_string());
+                        }
+                        FileType::SiteDep => {
+                            mp.insert(col.to_string());
+                        }
+                    };
                 }
             }
         }
         let total_site = mp.len() as i64;
         total_sites.push(total_site);
-        // println!("{:?}, {total_site}", mp);
     }
     let series = polars::prelude::Series::new("dep_sites", total_sites.iter());
     df.insert_column(1, series).unwrap();
-    println!("{:?}", df.tail(Some(100)));
 
-    let mut root_path: Vec<&str> = file_path.split('/').collect();
-    root_path.truncate(root_path.len() - 1);
-
-    println!("dhur {:?}", root_path);
     let mut file = File::create(format!(
-        "{}/{}",
-        root_path.join("/"),
-        "with_site_deps.csv".to_owned(),
+        "{}_{}",
+        file_path.replace(".csv", ""),
+        "site_count.csv".to_owned(),
     ))
     .expect("could not create file");
 
@@ -93,7 +111,6 @@ fn parse_and_find_dependencies(file_path: &str) -> String {
         .finish()
         .unwrap();
     add_unique_site_counts(&mut df, file_path);
-    println!("{:?}", df);
     format!("Completed")
 }
 
