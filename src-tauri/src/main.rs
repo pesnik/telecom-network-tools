@@ -7,11 +7,7 @@ use std::fs::OpenOptions;
 use std::io::{BufWriter, Read, Seek, SeekFrom, Write};
 
 fn add_more_header_column(file_path: &str) -> std::io::Result<()> {
-
-    let mut file = OpenOptions::new()
-        .read(true)
-        .write(true)
-        .open(file_path)?;
+    let mut file = OpenOptions::new().read(true).write(true).open(file_path)?;
 
     let mut buffer = String::new();
 
