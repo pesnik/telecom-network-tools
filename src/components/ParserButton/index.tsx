@@ -9,6 +9,7 @@ const FileParserButton: React.FC = () => {
   const [fileParsed, setFileParsed] = useState<boolean>(false);
 
   const sendFileForParsing = async () => {
+    setFileParsed(false);
     if (!selectedFile) return;
 
     try {

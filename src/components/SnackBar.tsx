@@ -3,7 +3,7 @@ import Snackbar from "@mui/material/Snackbar";
 import IconButton from "@mui/material/IconButton";
 import CloseIcon from "@mui/icons-material/Close";
 
-export default function SimpleSnackbar() {
+const SimpleSnackbar: React.FC = () => {
   const [open, setOpen] = React.useState(true);
 
   const handleClose = (
@@ -41,4 +41,6 @@ export default function SimpleSnackbar() {
       />
     </div>
   );
-}
+};
+
+export default SimpleSnackbar;
