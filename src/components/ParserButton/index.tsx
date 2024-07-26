@@ -5,7 +5,7 @@ import { invoke } from "@tauri-apps/api/tauri";
 import SimpleSnackbar from "components/SnackBar";
 
 interface Response {
-  status: String;
+  status: Number;
   message: String;
 }
 
@@ -31,13 +31,13 @@ const FileParserButton: React.FC = () => {
 
       const response: Response = JSON.parse(responseString);
       console.log(response);
-      if (response.status === "0") {
+      if (response.status === 0) {
         setFileParsed(true);
         setResponseMessage(response.message as string);
         setError(0);
       } else {
         setResponseMessage(response.message as string);
-        setError(response.status as Number);
+        setError(response.status);
       }
       setFileParsed(true);
     } catch (error) {
