@@ -3,12 +3,18 @@ import Snackbar from "@mui/material/Snackbar";
 import IconButton from "@mui/material/IconButton";
 import CloseIcon from "@mui/icons-material/Close";
 
-const SimpleSnackbar: React.FC = () => {
+interface Props {
+  status: Number;
+  message: String;
+}
+
+const SimpleSnackbar: React.FC<Props> = ({ status, message }) => {
+  console.log(status, message);
   const [open, setOpen] = React.useState(true);
 
   const handleClose = (
     _event: React.SyntheticEvent | Event,
-    reason?: string
+    reason?: string,
   ) => {
     if (reason === "clickaway") {
       return;
@@ -22,7 +28,7 @@ const SimpleSnackbar: React.FC = () => {
       <IconButton
         size="small"
         aria-label="close"
-        color="success"
+        color={status === 0 ? "success" : "error"}
         onClick={handleClose}
       >
         <CloseIcon fontSize="small" />
@@ -36,7 +42,11 @@ const SimpleSnackbar: React.FC = () => {
         open={open}
         autoHideDuration={2000}
         onClose={handleClose}
-        message="Successfully Completed Dependency Check and File Saved"
+        message={
+          status === 0
+            ? "Successfully Completed Dependency Check and File Saved"
+            : message
+        }
         action={action}
       />
     </div>

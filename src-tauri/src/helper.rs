@@ -42,7 +42,7 @@ enum FileType {
     LinkDep,
 }
 
-pub fn add_unique_site_counts(df: &mut DataFrame, file_path: &str) {
+pub fn add_unique_site_counts(df: &mut DataFrame, file_path: &str) -> Result<(), PolarsError> {
     let rows = df.height();
     let mut total_sites: Vec<i64> = Vec::new();
 
@@ -53,7 +53,7 @@ pub fn add_unique_site_counts(df: &mut DataFrame, file_path: &str) {
     };
 
     for row in 0..rows {
-        let el = df.get_row(row).unwrap();
+        let el = df.get_row(row)?;
         let mut item = 0;
         let mut mp: HashSet<String> = HashSet::new();
         for col in el.0 {
@@ -97,5 +97,4 @@ pub fn add_unique_site_counts(df: &mut DataFrame, file_path: &str) {
         .include_header(true)
         .with_separator(b',')
         .finish(df)
-        .unwrap();
 }
