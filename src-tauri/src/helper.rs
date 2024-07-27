@@ -20,7 +20,7 @@ pub fn add_necessary_header_column(file_path: &str) -> std::io::Result<()> {
     });
 
     let mut new_header = String::from("site::MAC,vlanid,service");
-    for i in 1..=((max_col_needed - 3) / 2) {
+    for i in 1..=((max_col_needed - 3) as f64 / 2.0).ceil() as usize {
         new_header.push_str(&format!(",i{},s{}", i, i));
     }
 
