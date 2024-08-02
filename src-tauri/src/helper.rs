@@ -3,6 +3,8 @@ use std::collections::HashSet;
 use std::fs::File;
 use std::fs::OpenOptions;
 use std::io::{BufWriter, Read, Seek, SeekFrom, Write};
+use tauri::regex::Regex;
+
 
 pub fn add_necessary_header_column(file_path: &str) -> std::io::Result<()> {
     let mut file = OpenOptions::new().read(true).write(true).open(file_path)?;
@@ -45,6 +47,8 @@ enum FileType {
 pub fn add_unique_site_counts(df: &mut DataFrame, file_path: &str) -> Result<(), PolarsError> {
     let rows = df.height();
     let mut total_sites: Vec<i64> = Vec::new();
+    let mut site_mac_vec: Vec<String> = Vec::new();
+    let mut unique_sites_vec: Vec<Vec<String>> = Vec::new();
 
     let file_type = if file_path.contains("site_dep") {
         FileType::SiteDep
@@ -56,8 +60,12 @@ pub fn add_unique_site_counts(df: &mut DataFrame, file_path: &str) -> Result<(),
         let el = df.get_row(row)?;
         let mut item = 0;
         let mut mp: HashSet<String> = HashSet::new();
+        let mut site_mac = "".to_owned();
         for col in el.0 {
             item += 1;
+            if item == 1 {
+                site_mac = col.to_string().replace("\"", "");
+            }
             if item <= 2 {
                 continue;
             }
@@ -69,10 +77,10 @@ pub fn add_unique_site_counts(df: &mut DataFrame, file_path: &str) -> Result<(),
                     let target_column_value = match file_type {
                         FileType::LinkDep => {
                             let col_str = col.to_string();
-
                             let new_col: Vec<&str> = col_str.split("::").collect();
-
-                            new_col.get(0).unwrap().to_string()
+                            let re = Regex::new(r"_NE_*").unwrap();
+                            let val_with_ne = new_col.get(0).unwrap().to_string().replace("\"", "");
+                            re.replace(&val_with_ne, "").into_owned()
                         }
                         FileType::SiteDep => col.to_string(),
                     };
@@ -80,21 +88,32 @@ pub fn add_unique_site_counts(df: &mut DataFrame, file_path: &str) -> Result<(),
                 }
             }
         }
+
         let total_site = mp.len() as i64;
         total_sites.push(total_site);
+        site_mac_vec.push(site_mac);
+        unique_sites_vec.push(mp.into_iter().collect());
     }
-    let series = polars::prelude::Series::new("dep_sites", total_sites.iter());
-    df.insert_column(1, series).unwrap();
+
+    let site_mac_series = Series::new("site::MAC", site_mac_vec);
+    let unique_sites_series = Series::new("Unique Sites", unique_sites_vec.iter().map(|v| v.join(", ")).collect::<Vec<_>>());
+    let mut new_df = DataFrame::new(vec![site_mac_series, unique_sites_series])?;
+    println!("{:?}", new_df);
+
+    let series = Series::new("Dep, Site Count", total_sites);
+    new_df.insert_column(1, series)?;
 
     let mut file = File::create(format!(
         "{}_{}",
         file_path.replace(".csv", ""),
-        "site_count.csv".to_owned(),
+        "site_count.csv"
     ))
     .expect("could not create file");
 
     CsvWriter::new(&mut file)
         .include_header(true)
         .with_separator(b',')
-        .finish(df)
+        .finish(&mut new_df)?;
+
+    Ok(())
 }
