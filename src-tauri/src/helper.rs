@@ -1,10 +1,13 @@
+use polars::lazy::dsl::col;
+use polars::lazy::dsl::GetOutput;
+// use polars::lazy::dsl::col;
+use polars::lazy::prelude::*;
 use polars::prelude::*;
 use std::collections::HashSet;
 use std::fs::File;
 use std::fs::OpenOptions;
 use std::io::{BufWriter, Read, Seek, SeekFrom, Write};
 use tauri::regex::Regex;
-
 
 pub fn add_necessary_header_column(file_path: &str) -> std::io::Result<()> {
     let mut file = OpenOptions::new().read(true).write(true).open(file_path)?;
@@ -44,18 +47,11 @@ enum FileType {
     LinkDep,
 }
 
-pub fn add_unique_site_counts(df: &mut DataFrame, file_path: &str) -> Result<(), PolarsError> {
+fn get_site_dep_df(df: &mut DataFrame) -> Result<DataFrame, PolarsError> {
     let rows = df.height();
     let mut total_sites: Vec<i64> = Vec::new();
     let mut site_mac_vec: Vec<String> = Vec::new();
     let mut unique_sites_vec: Vec<Vec<String>> = Vec::new();
-
-    let file_type = if file_path.contains("site_dep") {
-        FileType::SiteDep
-    } else {
-        FileType::LinkDep
-    };
-
     for row in 0..rows {
         let el = df.get_row(row)?;
         let mut item = 0;
@@ -74,16 +70,152 @@ pub fn add_unique_site_counts(df: &mut DataFrame, file_path: &str) -> Result<(),
                     break;
                 }
                 _ => {
-                    let target_column_value = match file_type {
-                        FileType::LinkDep => {
-                            let col_str = col.to_string();
-                            let new_col: Vec<&str> = col_str.split("::").collect();
-                            let re = Regex::new(r"_NE_*").unwrap();
-                            let val_with_ne = new_col.get(0).unwrap().to_string().replace("\"", "");
-                            re.replace(&val_with_ne, "").into_owned()
+                    let col_str = col.to_string().replace("\"", "");
+                    mp.insert(col_str);
+                }
+            }
+        }
+
+        let total_site = mp.len() as i64;
+        total_sites.push(total_site);
+        site_mac_vec.push(site_mac);
+        unique_sites_vec.push(mp.into_iter().collect());
+    }
+
+    let site_mac_series = Series::new("site::MAC", site_mac_vec);
+    let unique_sites_series = Series::new(
+        "Unique Sites",
+        unique_sites_vec
+            .iter()
+            .map(|v| v.join(", "))
+            .collect::<Vec<_>>(),
+    );
+    let new_df = DataFrame::new(vec![site_mac_series, unique_sites_series])?;
+    // println!("{:?}", new_df);
+
+    // let series = Series::new("Dep, Site Count", total_sites);
+    // new_df.insert_column(1, series)?;
+
+    let out = new_df
+        .clone()
+        .lazy()
+        .with_columns([col("site::MAC")
+            .str()
+            .replace(lit(r"_NE_*"), lit(""), false)
+            .alias("without_ne")])
+        .collect();
+
+    let out = out
+        .unwrap()
+        .clone()
+        .lazy()
+        .group_by(["without_ne"])
+        .agg([concat_str([col("Unique Sites")], ", ", true).alias("Concatenated Sites")])
+        .collect();
+
+    let out = out
+        .unwrap()
+        .clone()
+        .lazy()
+        .group_by(["without_ne"])
+        .agg([
+            col("Concatenated Sites")
+                .apply(
+                    |s: Series| {
+                        let list_series = s.list()?;
+                        let mut result = Vec::new();
+
+                        for opt_list in list_series.into_iter() {
+                            if let Some(list) = opt_list {
+                                // println!("{:?}", list.get(0).unwrap());
+                                let sites = list.get(0).unwrap();
+                                result.push(sites.to_string().split(",").count().to_string());
+                            } else {
+                                result.push(0.to_string());
+                            }
                         }
-                        FileType::SiteDep => col.to_string(),
-                    };
+
+                        Ok(Series::new("Concatenated Sites", result).into())
+                    },
+                    GetOutput::from_type(DataType::String),
+                ) 
+                .alias("Dep. Site Count"),
+            col("Concatenated Sites")
+                .apply(
+                    |s: Series| {
+                        let list_series = s.list()?;
+                        let mut result = Vec::new();
+
+                        for opt_list in list_series.into_iter() {
+                            if let Some(list) = opt_list {
+                                let mut set = HashSet::new();
+                                for value in list.iter() {
+                                    if let Some(value_str) = value.get_str() {
+                                        set.insert(value_str.to_string());
+                                    }
+                                }
+                                // Collect unique values into a comma-separated string
+                                result.push(set.into_iter().collect::<Vec<String>>().join(", "));
+                            } else {
+                                result.push(String::new()); // Handle None case
+                            }
+                        }
+
+                        Ok(Series::new("Concatenated Sites", result).into())
+                    },
+                    GetOutput::from_type(DataType::String),
+                )
+                .alias("Concatenated Sites"),
+        ])
+        .collect();
+
+    let out = out
+        .unwrap()
+        .clone()
+        .lazy()
+        // .with_column(col("Concatenated Sites").alias("Dep, Site Count"))
+        .select([
+            col("without_ne").alias("Site"),
+            col("Dep. Site Count").list().join(lit(","), true),
+            col("Concatenated Sites")
+                .list()
+                .join(lit(","), true)
+                .alias("Dep. Sites"),
+        ])
+        .collect();
+
+    Ok(out.unwrap())
+}
+
+fn get_link_dep_df(df: &mut DataFrame) -> Result<DataFrame, PolarsError> {
+    let rows = df.height();
+    let mut total_sites: Vec<i64> = Vec::new();
+    let mut site_mac_vec: Vec<String> = Vec::new();
+    let mut unique_sites_vec: Vec<Vec<String>> = Vec::new();
+    for row in 0..rows {
+        let el = df.get_row(row)?;
+        let mut item = 0;
+        let mut mp: HashSet<String> = HashSet::new();
+        let mut site_mac = "".to_owned();
+        for col in el.0 {
+            item += 1;
+            if item == 1 {
+                site_mac = col.to_string().replace("\"", "");
+            }
+            if item <= 2 {
+                continue;
+            }
+            match col {
+                AnyValue::Null => {
+                    break;
+                }
+                _ => {
+                    let col_str = col.to_string();
+                    let new_col: Vec<&str> = col_str.split("::").collect();
+                    let re = Regex::new(r"_NE_*").unwrap();
+                    let val_with_ne = new_col.get(0).unwrap().to_string().replace("\"", "");
+                    let target_column_value = re.replace(&val_with_ne, "").into_owned();
+
                     mp.insert(target_column_value);
                 }
             }
@@ -96,13 +228,40 @@ pub fn add_unique_site_counts(df: &mut DataFrame, file_path: &str) -> Result<(),
     }
 
     let site_mac_series = Series::new("site::MAC", site_mac_vec);
-    let unique_sites_series = Series::new("Unique Sites", unique_sites_vec.iter().map(|v| v.join(", ")).collect::<Vec<_>>());
+    let unique_sites_series = Series::new(
+        "Unique Sites",
+        unique_sites_vec
+            .iter()
+            .map(|v| v.join(", "))
+            .collect::<Vec<_>>(),
+    );
     let mut new_df = DataFrame::new(vec![site_mac_series, unique_sites_series])?;
     println!("{:?}", new_df);
 
-    let series = Series::new("Dep, Site Count", total_sites);
+    let series = Series::new("Dep. Site Count", total_sites);
     new_df.insert_column(1, series)?;
 
+    Ok(new_df)
+}
+
+fn get_processed_dataframe(
+    df: &mut DataFrame,
+    file_type: FileType,
+) -> Result<DataFrame, PolarsError> {
+    match file_type {
+        FileType::SiteDep => get_site_dep_df(df),
+        FileType::LinkDep => get_link_dep_df(df),
+    }
+}
+
+pub fn add_unique_site_counts(df: &mut DataFrame, file_path: &str) -> Result<(), PolarsError> {
+    let file_type = if file_path.contains("site_dep") {
+        FileType::SiteDep
+    } else {
+        FileType::LinkDep
+    };
+
+    let mut new_df = get_processed_dataframe(df, file_type).unwrap();
     let mut file = File::create(format!(
         "{}_{}",
         file_path.replace(".csv", ""),
