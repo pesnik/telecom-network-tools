@@ -52,7 +52,7 @@ fn get_site_dep_df(df: &mut DataFrame) -> Result<DataFrame, PolarsError> {
         .select([
             col("site::MAC")
                 .str()
-                .replace(lit(r"_NE_*"), lit(""), false),
+                .replace(lit(r"_NE_.*"), lit(""), false),
             col("*").exclude(["site::MAC"]),
         ])
         .group_by(["site::MAC"])
@@ -63,13 +63,17 @@ fn get_site_dep_df(df: &mut DataFrame) -> Result<DataFrame, PolarsError> {
             |s: Series| {
                 let list_series = s.list()?;
                 let mut result = Vec::new();
+                let re = Regex::new(r"_NE_.*").unwrap();
 
                 for opt_list in list_series.into_iter() {
                     if let Some(list) = opt_list {
                         let mut set = HashSet::new();
                         for value in list.iter() {
-                            if let Some(value_str) = value.get_str() {
-                                set.insert(value_str.to_string());
+                            if let Some(site) = value.get_str() {
+                                site.split(",").into_iter().for_each(|candidate| {
+                                    let modified = re.replace(candidate, "").into_owned();
+                                    set.insert(modified);
+                                });
                             }
                         }
                         result.push(set.into_iter().collect::<Vec<String>>().join(","));
@@ -124,6 +128,7 @@ fn get_link_dep_df(df: &mut DataFrame) -> Result<DataFrame, PolarsError> {
             |s: Series| {
                 let list_series = s.list()?;
                 let mut result = Vec::new();
+                let re = Regex::new(r"_NE_.*").unwrap();
 
                 for opt_list in list_series.into_iter() {
                     if let Some(list) = opt_list {
@@ -131,14 +136,10 @@ fn get_link_dep_df(df: &mut DataFrame) -> Result<DataFrame, PolarsError> {
                         for value in list.iter() {
                             if let Some(value_str) = value.get_str() {
                                 let col_str = value_str.to_string();
-                                let re = Regex::new(r"_NE_.*").unwrap();
-                                col_str
-                                    .split(",")
-                                    .into_iter()
-                                    .for_each(|site| {
-                                        let modified = re.replace(site, "").into_owned();
-                                        set.insert(modified);
-                                    });
+                                col_str.split(",").into_iter().for_each(|site| {
+                                    let modified = re.replace(site, "").into_owned();
+                                    set.insert(modified);
+                                });
                             }
                         }
                         result.push(set.into_iter().collect::<Vec<String>>().join(","));
