@@ -1,6 +1,5 @@
 use polars::lazy::dsl::col;
 use polars::lazy::dsl::GetOutput;
-// use polars::lazy::dsl::col;
 use polars::lazy::prelude::*;
 use polars::prelude::*;
 use std::collections::HashSet;
@@ -48,143 +47,80 @@ enum FileType {
 }
 
 fn get_site_dep_df(df: &mut DataFrame) -> Result<DataFrame, PolarsError> {
-    let rows = df.height();
-    let mut total_sites: Vec<i64> = Vec::new();
-    let mut site_mac_vec: Vec<String> = Vec::new();
-    let mut unique_sites_vec: Vec<Vec<String>> = Vec::new();
-    for row in 0..rows {
-        let el = df.get_row(row)?;
-        let mut item = 0;
-        let mut mp: HashSet<String> = HashSet::new();
-        let mut site_mac = "".to_owned();
-        for col in el.0 {
-            item += 1;
-            if item == 1 {
-                site_mac = col.to_string().replace("\"", "");
-            }
-            if item <= 2 {
-                continue;
-            }
-            match col {
-                AnyValue::Null => {
-                    break;
-                }
-                _ => {
-                    let col_str = col.to_string().replace("\"", "");
-                    mp.insert(col_str);
-                }
-            }
-        }
-
-        let total_site = mp.len() as i64;
-        total_sites.push(total_site);
-        site_mac_vec.push(site_mac);
-        unique_sites_vec.push(mp.into_iter().collect());
-    }
-
-    let site_mac_series = Series::new("site::MAC", site_mac_vec);
-    let unique_sites_series = Series::new(
-        "Unique Sites",
-        unique_sites_vec
-            .iter()
-            .map(|v| v.join(", "))
-            .collect::<Vec<_>>(),
-    );
-    let new_df = DataFrame::new(vec![site_mac_series, unique_sites_series])?;
-    // println!("{:?}", new_df);
-
-    // let series = Series::new("Dep, Site Count", total_sites);
-    // new_df.insert_column(1, series)?;
-
-    let out = new_df
+    let mut new_df = df
         .clone()
         .lazy()
-        .with_columns([col("site::MAC")
-            .str()
-            .replace(lit(r"_NE_*"), lit(""), false)
-            .alias("without_ne")])
+        .select([
+            col("site::MAC")
+                .str()
+                .replace(lit(r"_NE_*"), lit(""), false),
+            col("*").exclude(["site::MAC"]),
+        ])
         .collect();
 
-    let out = out
-        .unwrap()
-        .clone()
-        .lazy()
-        .group_by(["without_ne"])
-        .agg([concat_str([col("Unique Sites")], ", ", true).alias("Concatenated Sites")])
-        .collect();
+    let new_df = new_df.as_mut().unwrap();
 
-    let out = out
-        .unwrap()
+    let final_df = new_df
         .clone()
         .lazy()
-        .group_by(["without_ne"])
+        .group_by(["site::MAC"])
         .agg([
-            col("Concatenated Sites")
+            concat_str([col("*").exclude(["site::MAC", "vlanid"])], ",", true).alias("Dep. Sites"),
+        ])
+        .with_column(col("Dep. Sites").apply(
+            |s: Series| {
+                let list_series = s.list()?;
+                let mut result = Vec::new();
+
+                for opt_list in list_series.into_iter() {
+                    if let Some(list) = opt_list {
+                        let mut set = HashSet::new();
+                        for value in list.iter() {
+                            if let Some(value_str) = value.get_str() {
+                                set.insert(value_str.to_string());
+                            }
+                        }
+                        result.push(set.into_iter().collect::<Vec<String>>().join(", "));
+                    } else {
+                        result.push(String::new());
+                    }
+                }
+
+                Ok(Series::new("Sites", result).into())
+            },
+            GetOutput::from_type(DataType::String),
+        ))
+        .with_column(
+            col("Dep. Sites")
                 .apply(
                     |s: Series| {
-                        let list_series = s.list()?;
-                        let mut result = Vec::new();
-
-                        for opt_list in list_series.into_iter() {
-                            if let Some(list) = opt_list {
-                                // println!("{:?}", list.get(0).unwrap());
-                                let sites = list.get(0).unwrap();
+                        let list_series = s.str()?;
+                        let mut result: Vec<String> = Vec::new();
+                        for site_list in list_series.into_iter() {
+                            if let Some(sites) = site_list {
                                 result.push(sites.to_string().split(",").count().to_string());
                             } else {
                                 result.push(0.to_string());
                             }
                         }
-
-                        Ok(Series::new("Concatenated Sites", result).into())
-                    },
-                    GetOutput::from_type(DataType::String),
-                ) 
-                .alias("Dep. Site Count"),
-            col("Concatenated Sites")
-                .apply(
-                    |s: Series| {
-                        let list_series = s.list()?;
-                        let mut result = Vec::new();
-
-                        for opt_list in list_series.into_iter() {
-                            if let Some(list) = opt_list {
-                                let mut set = HashSet::new();
-                                for value in list.iter() {
-                                    if let Some(value_str) = value.get_str() {
-                                        set.insert(value_str.to_string());
-                                    }
-                                }
-                                // Collect unique values into a comma-separated string
-                                result.push(set.into_iter().collect::<Vec<String>>().join(", "));
-                            } else {
-                                result.push(String::new()); // Handle None case
-                            }
-                        }
-
-                        Ok(Series::new("Concatenated Sites", result).into())
+                        Ok(Series::new("Dep. Sites", result).into())
                     },
                     GetOutput::from_type(DataType::String),
                 )
-                .alias("Concatenated Sites"),
-        ])
-        .collect();
-
-    let out = out
-        .unwrap()
-        .clone()
-        .lazy()
-        // .with_column(col("Concatenated Sites").alias("Dep, Site Count"))
+                .alias("Dep. Site Count"),
+        )
         .select([
-            col("without_ne").alias("Site"),
-            col("Dep. Site Count").list().join(lit(","), true),
-            col("Concatenated Sites")
-                .list()
-                .join(lit(","), true)
-                .alias("Dep. Sites"),
+            col("site::MAC").alias("Sites"),
+            col("Dep. Site Count").cast(DataType::Int64),
+            col("Dep. Sites"),
         ])
+        .sort(
+            ["Dep. Site Count"],
+            SortMultipleOptions::new().with_order_descending(true),
+        )
         .collect();
 
-    Ok(out.unwrap())
+    Ok(final_df?)
 }
 
 fn get_link_dep_df(df: &mut DataFrame) -> Result<DataFrame, PolarsError> {
