@@ -61,26 +61,29 @@ fn get_site_dep_df(df: &mut DataFrame) -> Result<DataFrame, PolarsError> {
         ])
         .with_column(col("Dep. Sites").apply(
             |s: Series| {
-                let list_series = s.list()?;
-                let mut result = Vec::new();
                 let re = Regex::new(r"_NE_.*").unwrap();
 
-                for opt_list in list_series.into_iter() {
-                    if let Some(list) = opt_list {
-                        let mut set = HashSet::new();
-                        for value in list.iter() {
-                            if let Some(site) = value.get_str() {
-                                site.split(",").into_iter().for_each(|candidate| {
-                                    let modified = re.replace(candidate, "").into_owned();
-                                    set.insert(modified);
-                                });
-                            }
-                        }
-                        result.push(set.into_iter().collect::<Vec<String>>().join(","));
-                    } else {
-                        result.push(String::new());
-                    }
-                }
+                let result: Vec<String> = s
+                    .list()?
+                    .into_iter()
+                    .map(|opt_list| {
+                        opt_list.map_or_else(
+                            || String::new(),
+                            |list| {
+                                list.iter()
+                                    .filter_map(|value| value.get_str().map(|s| s.to_string()))
+                                    .flat_map(|site| {
+                                        site.split(',').map(String::from).collect::<Vec<String>>()
+                                    })
+                                    .map(|candidate| re.replace(&candidate, "").into_owned())
+                                    .collect::<HashSet<_>>()
+                                    .into_iter()
+                                    .collect::<Vec<String>>()
+                                    .join(",")
+                            },
+                        )
+                    })
+                    .collect();
 
                 Ok(Series::new("Sites", result).into())
             },
@@ -90,15 +93,16 @@ fn get_site_dep_df(df: &mut DataFrame) -> Result<DataFrame, PolarsError> {
             col("Dep. Sites")
                 .apply(
                     |s: Series| {
-                        let list_series = s.str()?;
-                        let mut result: Vec<String> = Vec::new();
-                        for site_list in list_series.into_iter() {
-                            if let Some(sites) = site_list {
-                                result.push(sites.to_string().split(",").count().to_string());
-                            } else {
-                                result.push(0.to_string());
-                            }
-                        }
+                        let result = s
+                            .str()?
+                            .into_iter()
+                            .map(|site_list| {
+                                site_list.map_or_else(
+                                    || 0.to_string(),
+                                    |sites| sites.to_string().split(",").count().to_string(),
+                                )
+                            })
+                            .collect::<Vec<String>>();
                         Ok(Series::new("Dep. Sites", result).into())
                     },
                     GetOutput::from_type(DataType::String),
@@ -126,27 +130,29 @@ fn get_link_dep_df(df: &mut DataFrame) -> Result<DataFrame, PolarsError> {
         ])
         .with_column(col("Dep. Sites").apply(
             |s: Series| {
-                let list_series = s.list()?;
-                let mut result = Vec::new();
                 let re = Regex::new(r"_NE_.*").unwrap();
 
-                for opt_list in list_series.into_iter() {
-                    if let Some(list) = opt_list {
-                        let mut set = HashSet::new();
-                        for value in list.iter() {
-                            if let Some(value_str) = value.get_str() {
-                                let col_str = value_str.to_string();
-                                col_str.split(",").into_iter().for_each(|site| {
-                                    let modified = re.replace(site, "").into_owned();
-                                    set.insert(modified);
-                                });
-                            }
-                        }
-                        result.push(set.into_iter().collect::<Vec<String>>().join(","));
-                    } else {
-                        result.push(String::new());
-                    }
-                }
+                let result: Vec<String> = s
+                    .list()?
+                    .into_iter()
+                    .map(|opt_list| {
+                        opt_list.map_or_else(
+                            || String::new(),
+                            |list| {
+                                list.iter()
+                                    .filter_map(|value| value.get_str().map(|s| s.to_string()))
+                                    .flat_map(|site| {
+                                        site.split(',').map(String::from).collect::<Vec<String>>()
+                                    })
+                                    .map(|candidate| re.replace(&candidate, "").into_owned())
+                                    .collect::<HashSet<_>>()
+                                    .into_iter()
+                                    .collect::<Vec<String>>()
+                                    .join(",")
+                            },
+                        )
+                    })
+                    .collect();
 
                 Ok(Series::new("Sites", result).into())
             },
@@ -156,15 +162,16 @@ fn get_link_dep_df(df: &mut DataFrame) -> Result<DataFrame, PolarsError> {
             col("Dep. Sites")
                 .apply(
                     |s: Series| {
-                        let list_series = s.str()?;
-                        let mut result: Vec<String> = Vec::new();
-                        for site_list in list_series.into_iter() {
-                            if let Some(sites) = site_list {
-                                result.push(sites.to_string().split(",").count().to_string());
-                            } else {
-                                result.push(0.to_string());
-                            }
-                        }
+                        let result = s
+                            .str()?
+                            .into_iter()
+                            .map(|site_list| {
+                                site_list.map_or_else(
+                                    || 0.to_string(),
+                                    |sites| sites.to_string().split(",").count().to_string(),
+                                )
+                            })
+                            .collect::<Vec<String>>();
                         Ok(Series::new("Dep. Sites", result).into())
                     },
                     GetOutput::from_type(DataType::String),
