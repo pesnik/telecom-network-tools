@@ -8,6 +8,12 @@ use std::fs::OpenOptions;
 use std::io::{BufWriter, Read, Seek, SeekFrom, Write};
 use tauri::regex::Regex;
 
+#[derive(Debug, Clone, Copy)]
+enum FileType {
+    SiteDep,
+    LinkDep,
+}
+
 pub fn add_necessary_header_column(file_path: &str) -> std::io::Result<()> {
     let mut file = OpenOptions::new().read(true).write(true).open(file_path)?;
 
@@ -41,142 +47,82 @@ pub fn add_necessary_header_column(file_path: &str) -> std::io::Result<()> {
     Ok(())
 }
 
-enum FileType {
-    SiteDep,
-    LinkDep,
-}
+fn process_dep_sites(s: Series, file_type: FileType) -> Result<Option<Series>, PolarsError> {
+    let re = Regex::new(r"_NE_.*").unwrap();
 
-fn get_site_dep_df(df: &mut DataFrame) -> Result<DataFrame, PolarsError> {
-    df.clone()
-        .lazy()
-        .select([
-            col("site::MAC")
-                .str()
-                .replace(lit(r"_NE_.*"), lit(""), false),
-            col("*").exclude(["site::MAC"]),
-        ])
-        .group_by(["site::MAC"])
-        .agg([
-            concat_str([col("*").exclude(["site::MAC", "vlanid"])], ",", true).alias("Dep. Sites"),
-        ])
-        .with_column(col("Dep. Sites").apply(
-            |s: Series| {
-                let re = Regex::new(r"_NE_.*").unwrap();
+    let result: Vec<String> = s
+        .list()?
+        .into_iter()
+        .map(|opt_list| {
+            opt_list.map_or_else(
+                || String::new(),
+                |list| {
+                    let mut sites: Vec<String> = list
+                        .iter()
+                        .filter_map(|value| value.get_str().map(|s| s.to_string()))
+                        .flat_map(|site| site.split(',').map(String::from).collect::<Vec<String>>())
+                        .collect();
 
-                let result: Vec<String> = s
-                    .list()?
-                    .into_iter()
-                    .map(|opt_list| {
-                        opt_list.map_or_else(
-                            || String::new(),
-                            |list| {
-                                list.iter()
-                                    .filter_map(|value| value.get_str().map(|s| s.to_string()))
-                                    .flat_map(|site| {
-                                        site.split(',').map(String::from).collect::<Vec<String>>()
-                                    })
-                                    .map(|candidate| re.replace(&candidate, "").into_owned())
-                                    .collect::<HashSet<_>>()
-                                    .into_iter()
-                                    .collect::<Vec<String>>()
-                                    .join(",")
-                            },
-                        )
-                    })
-                    .collect();
-
-                Ok(Series::new("Sites", result).into())
-            },
-            GetOutput::from_type(DataType::String),
-        ))
-        .with_column(
-            col("Dep. Sites")
-                .apply(
-                    |s: Series| {
-                        let result = s
-                            .str()?
+                    if let FileType::LinkDep = file_type {
+                        sites = sites
                             .into_iter()
-                            .map(|site_list| {
-                                site_list.map_or_else(
-                                    || 0.to_string(),
-                                    |sites| sites.to_string().split(",").count().to_string(),
-                                )
-                            })
-                            .collect::<Vec<String>>();
-                        Ok(Series::new("Dep. Sites", result).into())
-                    },
-                    GetOutput::from_type(DataType::String),
-                )
-                .alias("Dep. Site Count"),
-        )
-        .select([
-            col("site::MAC").alias("Sites"),
-            col("Dep. Site Count").cast(DataType::Int64),
-            col("Dep. Sites"),
-        ])
-        .sort(
-            ["Dep. Site Count"],
-            SortMultipleOptions::new().with_order_descending(true),
-        )
-        .collect()
+                            .map(|candidate| re.replace(&candidate, "").into_owned())
+                            .collect();
+                    }
+
+                    sites
+                        .into_iter()
+                        .collect::<HashSet<_>>()
+                        .into_iter()
+                        .collect::<Vec<String>>()
+                        .join(",")
+                },
+            )
+        })
+        .collect();
+
+    Ok(Some(Series::new("Sites", result)))
 }
 
-fn get_link_dep_df(df: &mut DataFrame) -> Result<DataFrame, PolarsError> {
-    df.clone()
+fn count_dep_sites(s: Series) -> Result<Option<Series>, PolarsError> {
+    let result: Vec<String> = s
+        .str()?
+        .into_iter()
+        .map(|site_list| {
+            site_list.map_or_else(
+                || 0.to_string(),
+                |sites| sites.split(',').count().to_string(),
+            )
+        })
+        .collect();
+
+    Ok(Some(Series::new("Dep. Site Count", result)))
+}
+
+fn get_dep_df(df: &mut DataFrame, file_type: FileType) -> Result<DataFrame, PolarsError> {
+    let df = df
+        .clone()
         .lazy()
+        .select(match file_type {
+            FileType::SiteDep => [
+                col("site::MAC")
+                    .str()
+                    .replace(lit(r"_NE_.*"), lit(""), false),
+                col("*").exclude(["site::MAC"]),
+            ]
+            .to_vec(),
+            FileType::LinkDep => [col("*")].to_vec(),
+        })
         .group_by([col("site::MAC")])
         .agg([
             concat_str([col("*").exclude(["site::MAC", "vlanid"])], ",", true).alias("Dep. Sites"),
         ])
         .with_column(col("Dep. Sites").apply(
-            |s: Series| {
-                let re = Regex::new(r"_NE_.*").unwrap();
-
-                let result: Vec<String> = s
-                    .list()?
-                    .into_iter()
-                    .map(|opt_list| {
-                        opt_list.map_or_else(
-                            || String::new(),
-                            |list| {
-                                list.iter()
-                                    .filter_map(|value| value.get_str().map(|s| s.to_string()))
-                                    .flat_map(|site| {
-                                        site.split(',').map(String::from).collect::<Vec<String>>()
-                                    })
-                                    .map(|candidate| re.replace(&candidate, "").into_owned())
-                                    .collect::<HashSet<_>>()
-                                    .into_iter()
-                                    .collect::<Vec<String>>()
-                                    .join(",")
-                            },
-                        )
-                    })
-                    .collect();
-
-                Ok(Series::new("Sites", result).into())
-            },
+            move |s| process_dep_sites(s, file_type),
             GetOutput::from_type(DataType::String),
         ))
         .with_column(
-            col("Dep. Sites")
-                .apply(
-                    |s: Series| {
-                        let result = s
-                            .str()?
-                            .into_iter()
-                            .map(|site_list| {
-                                site_list.map_or_else(
-                                    || 0.to_string(),
-                                    |sites| sites.to_string().split(",").count().to_string(),
-                                )
-                            })
-                            .collect::<Vec<String>>();
-                        Ok(Series::new("Dep. Sites", result).into())
-                    },
-                    GetOutput::from_type(DataType::String),
-                )
-                .alias("Dep. Site Count"),
+            col("Dep. Sites").apply(count_dep_sites, GetOutput::from_type(DataType::String)).alias("Dep. Site Count"),
         )
         .select([
             col("site::MAC").alias("Sites"),
@@ -187,17 +133,16 @@ fn get_link_dep_df(df: &mut DataFrame) -> Result<DataFrame, PolarsError> {
             ["Dep. Site Count"],
             SortMultipleOptions::new().with_order_descending(true),
         )
-        .collect()
+        .collect();
+
+    df
 }
 
 fn get_processed_dataframe(
     df: &mut DataFrame,
     file_type: FileType,
 ) -> Result<DataFrame, PolarsError> {
-    match file_type {
-        FileType::SiteDep => get_site_dep_df(df),
-        FileType::LinkDep => get_link_dep_df(df),
-    }
+    get_dep_df(df, file_type)
 }
 
 pub fn add_unique_site_counts(df: &mut DataFrame, file_path: &str) -> Result<(), PolarsError> {
@@ -207,13 +152,9 @@ pub fn add_unique_site_counts(df: &mut DataFrame, file_path: &str) -> Result<(),
         FileType::LinkDep
     };
 
-    let mut new_df = get_processed_dataframe(df, file_type).unwrap();
-    let mut file = File::create(format!(
-        "{}_{}",
-        file_path.replace(".csv", ""),
-        "site_count.csv"
-    ))
-    .expect("could not create file");
+    let mut new_df = get_processed_dataframe(df, file_type)?;
+    let file_name = format!("{}_{}", file_path.replace(".csv", ""), "site_count.csv");
+    let mut file = File::create(file_name).expect("could not create file");
 
     CsvWriter::new(&mut file)
         .include_header(true)

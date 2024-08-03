@@ -30,7 +30,7 @@ const FileUploadButton: React.FC<FileUploadButtonProps> = ({
       startIcon={<CloudUploadIcon />}
       onClick={handleOpen}
     >
-      Upload file
+      Choose file
       {/* <VisuallyHiddenInput type="file" onChange={handleFileChange} /> */}
     </Button>
   );
