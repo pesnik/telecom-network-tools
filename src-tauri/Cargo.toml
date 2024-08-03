@@ -1,8 +1,8 @@
 [package]
 name = "blink-transmission"
-version = "0.0.2"
-description = "A Tauri App"
-authors = ["you"]
+version = "0.0.3"
+description = "A desktop application for internal team to help them done their work without concering about installing python, conda etc to parse csv"
+authors = ["rhasanm"]
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
